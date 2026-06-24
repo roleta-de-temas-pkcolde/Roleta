@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roleta de Temas - Colab com Pixel Pocket Studio</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121214;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+        }
+        h1 { color: #ff4757; text-align: center; font-size: 1.8rem; }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            max-width: 500px;
+            width: 100%;
+        }
+        .input-section {
+            background: #202024;
+            padding: 20px;
+            border-radius: 8px;
+            width: 100%;
+            box-sizing: border-box;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            border: 1px solid #41414c;
+            border-radius: 4px;
+            background: #121214;
+            color: #fff;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #ff4757;
+            border: none;
+            color: white;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover { background: #ff6b81; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        
+        /* Estilo da Roleta */
+        .wheel-wrapper {
+            position: relative;
+            margin-top: 20px;
+        }
+        .pointer {
+            position: absolute;
+            top: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0; 
+            height: 0; 
+            border-left: 15px solid transparent;
+            border-right: 15px solid transparent;
+            border-top: 25px solid #ff4757;
+            z-index: 10;
+        }
+        canvas {
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+            transition: transform 4s cubic-bezier(0.1, 0.8, 0.1, 1);
+        }
+        .status {
+            font-size: 1.1rem;
+            color: #2ed573;
+            font-weight: bold;
+            min-height: 24px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Roleta de Temas: Colab</h1>
+    
+    <div class="container">
+        <div class="input-section">
+            <h3>Digite seus 3 Temas</h3>
+            <input type="text" id="tema1" placeholder="Tema 1">
+            <input type="text" id="tema2" placeholder="Tema 2">
+            <input type="text" id="tema3" placeholder="Tema 3">
+            <button id="btnEnviar">Enviar Meus Temas</button>
+        </div>
+
+        <div class="status" id="statusMsg">Aguardando os temas (0/6)...</div>
+
+        <button id="btnGirar" disabled style="background: #2ed573;">GIRAR ROLETA</button>
+
+        <div class="wheel-wrapper">
+            <div class="pointer"></div>
+            <canvas id="canvas" width="350" height="350"></canvas>
+        </div>
+    </div>
+
+    <!-- Scripts do Firebase v9 (Módulos via CDN) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
+
+        // CONFIGURAÇÃO DO SEU FIREBASE COM SUA URL FORNECIDA
+        const firebaseConfig = {
+            databaseURL: "https://terrormultiplayer1-default-rtdb.firebaseio.com/"
+        };
+
+        // Inicializar Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const sessionRef = ref(db, 'roleta_colab');
+
+        // Elementos da Interface
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const btnEnviar = document.getElementById('btnEnviar');
+        const btnGirar = document.getElementById('btnGirar');
+        const statusMsg = document.getElementById('statusMsg');
+
+        // Identificador temporário para diferenciar você do Rodrigo na sessão
+        let userId = 'user_' + Math.random().toString(36).substr(2, 9);
+        let listaTemas = [];
+
+        // Cores bonitas para destacar os temas na roleta
+        const cores = ['#f39c12', '#9b59b6', '#e74c3c', '#3498db', '#2ecc71', '#1abc9c'];
+
+        // Função para desenhar a roleta dinamicamente
+        function desenharRoleta(temas) {
+            const numFatias = temas.length;
+            if (numFatias === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.beginPath();
+                ctx.arc(175, 175, 170, 0, 2 * Math.PI);
+                ctx.fillStyle = '#333';
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.font = '16px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('Aguardando temas serem digitados...', 175, 180);
+                return;
+            }
+
+            const anguloFatia = (2 * Math.PI) / numFatias;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < numFatias; i++) {
+                ctx.beginPath();
+                ctx.moveTo(175, 175);
+                ctx.arc(175, 175, 170, i * anguloFatia, (i + 1) * anguloFatia);
+                ctx.fillStyle = cores[i % cores.length];
+                ctx.fill();
+                ctx.strokeStyle = '#202024';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Adicionar o Texto do Tema na Fatia
+                ctx.save();
+                ctx.translate(175, 175);
+                ctx.rotate(i * anguloFatia + anguloFatia / 2);
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 14px sans-serif';
+                ctx.textAlign = 'right';
+                let texto = temas[i].length > 15 ? temas[i].substring(0, 12) + '...' : temas[i];
+                ctx.fillText(texto, 150, 5);
+                ctx.restore();
+            }
+        }
+
+        // Estado inicial
+        desenharRoleta([]);
+
+        // Envia os 3 temas digitados para a sua respectiva chave no banco
+        btnEnviar.addEventListener('click', () => {
+            const t1 = document.getElementById('tema1').value.trim();
+            const t2 = document.getElementById('tema2').value.trim();
+            const t3 = document.getElementById('tema3').value.trim();
+
+            if (!t1 || !t2 || !t3) {
+                alert('Por favor, digite os 3 temas antes de enviar!');
+                return;
+            }
+
+            set(ref(db, `roleta_colab/jogadores/${userId}`), [t1, t2, t3])
+                .then(() => {
+                    btnEnviar.disabled = true;
+                    btnEnviar.innerText = "Temas Enviados!";
+                    statusMsg.innerText = "Seus temas foram salvos. Aguardando o outro escolher...";
+                });
+        });
+
+        // Sincronização em Tempo Real (Escuta o Firebase)
+        onValue(sessionRef, (snapshot) => {
+            const data = snapshot.val();
+            if (!data) return;
+
+            // Une os temas enviados por ambos
+            listaTemas = [];
+            if (data.jogadores) {
+                Object.values(data.jogadores).forEach(temasJogador => {
+                    listaTemas = listaTemas.concat(temasJogador);
+                });
+            }
+
+            desenharRoleta(listaTemas);
+            statusMsg.innerText = `Temas carregados na roleta: (${listaTemas.length}/6)`;
+
+            // Só libera o botão de girar quando os dois tiverem colocado os 3 temas (total 6)
+            if (listaTemas.length >= 6) {
+                btnGirar.disabled = false;
+                statusMsg.innerText = "Tudo pronto! Qualquer um pode clicar em Girar!";
+            } else {
+                btnGirar.disabled = true;
+            }
+
+            // Sincroniza o giro físico da roleta na tela dos dois
+            if (data.giro && data.giro.timestamp) {
+                const anguloAlvo = data.giro.angulo;
+                canvas.style.transform = `rotate(${anguloAlvo}deg)`;
+                btnGirar.disabled = true; // Trava para ninguém bagunçar enquanto roda
+                
+                // Calcula o vencedor após o término da animação de CSS (4 segundos)
+                setTimeout(() => {
+                    const grausNormais = (anguloAlvo % 360);
+                    const anguloFatia = 360 / listaTemas.length;
+                    
+                    // O ponteiro fixo está apontando para o topo (270 graus)
+                    const indiceGanhador = Math.floor(((360 - grausNormais + 270) % 360) / anguloFatia);
+                    const temaVencedor = listaTemas[indiceGanhador];
+                    
+                    statusMsg.innerHTML = `🎉 O tema escolhido foi: <span style="color:#ff4757; font-size:1.4rem;">${temaVencedor}</span>!`;
+                    if (listaTemas.length >= 6) btnGirar.disabled = false;
+                }, 4000);
+            }
+        });
+
+        // Dispara o comando de girar atualizando o ângulo compartilhado no banco
+        btnGirar.addEventListener('click', () => {
+            // Força a dar várias voltas completas e parar em uma posição aleatória
+            const novoAngulo = Math.floor(Math.random() * 3000) + 2000;
+            
+            set(ref(db, 'roleta_colab/giro'), {
+                angulo: novoAngulo,
+                timestamp: Date.now()
+            });
+        });
+    </script>
+</body>
+  </html>
+                                   
