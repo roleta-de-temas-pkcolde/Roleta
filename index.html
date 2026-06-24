@@ -15,7 +15,8 @@
             padding: 20px;
             margin: 0;
         }
-        h1 { color: #ff4757; text-align: center; font-size: 1.8rem; }
+        h1 { color: #ff4757; text-align: center; font-size: 1.8rem; margin-bottom: 5px; }
+        .subtitle { color: #87868b; font-size: 0.9rem; margin-bottom: 20px; text-align: center; }
         .container {
             display: flex;
             flex-direction: column;
@@ -56,6 +57,12 @@
         button:hover { background: #ff6b81; }
         button:disabled { background: #555; cursor: not-allowed; }
         
+        .btn-danger {
+            background: #41414c;
+            margin-top: 10px;
+        }
+        .btn-danger:hover { background: #4f4f5d; }
+        
         /* Estilo da Roleta */
         .wheel-wrapper {
             position: relative;
@@ -90,6 +97,7 @@
 <body>
 
     <h1>Roleta de Temas: Colab</h1>
+    <div class="subtitle">Sincronizado via Firebase</div>
     
     <div class="container">
         <div class="input-section">
@@ -98,6 +106,7 @@
             <input type="text" id="tema2" placeholder="Tema 2">
             <input type="text" id="tema3" placeholder="Tema 3">
             <button id="btnEnviar">Enviar Meus Temas</button>
+            <button id="btnLimpar" class="btn-danger">🧹 Limpar Roleta (Reset)</button>
         </div>
 
         <div class="status" id="statusMsg">Aguardando os temas (0/6)...</div>
@@ -106,6 +115,194 @@
 
         <div class="wheel-wrapper">
             <div class="pointer"></div>
+            <canvas id="canvas" width="350" height="350"></canvas>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+        import { getDatabase, ref, set, remove, onValue } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
+
+        // CONFIGURAÇÃO DO SEU FIREBASE COM SUA URL FORNECIDA
+        const firebaseConfig = {
+            databaseURL: "https://terrormultiplayer1-default-rtdb.firebaseio.com/"
+        };
+
+        // Inicializar Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const sessionRef = ref(db, 'roleta_colab');
+
+        // --- FUNÇÃO PARA LIMPAR TUDO (Esvaziar Roleta) ---
+        function limparBancoDeDados() {
+            remove(sessionRef).then(() => {
+                console.log("Roleta limpa com sucesso!");
+                // Reseta a animação visual da roleta para a posição inicial (0 graus)
+                canvas.style.transform = `rotate(0deg)`;
+            });
+        }
+
+        // 1. Limpa automaticamente ao atualizar/carregar a página
+        window.addEventListener('load', () => {
+            limparBancoDeDados();
+        });
+
+        // Elementos da Interface
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const btnEnviar = document.getElementById('btnEnviar');
+        const btnGirar = document.getElementById('btnGirar');
+        const btnLimpar = document.getElementById('btnLimpar');
+        const statusMsg = document.getElementById('statusMsg');
+
+        // Identificador temporário para diferenciar você do Rodrigo na sessão
+        let userId = 'user_' + Math.random().toString(36).substr(2, 9);
+        let listaTemas = [];
+
+        // Cores bonitas para destacar os temas na roleta
+        const cores = ['#f39c12', '#9b59b6', '#e74c3c', '#3498db', '#2ecc71', '#1abc9c'];
+
+        // Função para desenho da roleta
+        function desenharRoleta(temas) {
+            const numFatias = temas.length;
+            if (numFatias === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.beginPath();
+                ctx.arc(175, 175, 170, 0, 2 * Math.PI);
+                ctx.fillStyle = '#333';
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.font = '16px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('Aguardando temas serem digitados...', 175, 180);
+                return;
+            }
+
+            const anguloFatia = (2 * Math.PI) / numFatias;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < numFatias; i++) {
+                ctx.beginPath();
+                ctx.moveTo(175, 175);
+                ctx.arc(175, 175, 170, i * anguloFatia, (i + 1) * anguloFatia);
+                ctx.fillStyle = cores[i % cores.length];
+                ctx.fill();
+                ctx.strokeStyle = '#202024';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                ctx.save();
+                ctx.translate(175, 175);
+                ctx.rotate(i * anguloFatia + anguloFatia / 2);
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 14px sans-serif';
+                ctx.textAlign = 'right';
+                let texto = temas[i].length > 15 ? temas[i].substring(0, 12) + '...' : temas[i];
+                ctx.fillText(texto, 150, 5);
+                ctx.restore();
+            }
+        }
+
+        // Estado inicial
+        desenharRoleta([]);
+
+        // Envia os 3 temas
+        btnEnviar.addEventListener('click', () => {
+            const t1 = document.getElementById('tema1').value.trim();
+            const t2 = document.getElementById('tema2').value.trim();
+            const t3 = document.getElementById('tema3').value.trim();
+
+            if (!t1 || !t2 || !t3) {
+                alert('Por favor, digite os 3 temas antes de enviar!');
+                return;
+            }
+
+            set(ref(db, `roleta_colab/jogadores/${userId}`), [t1, t2, t3])
+                .then(() => {
+                    btnEnviar.disabled = true;
+                    btnEnviar.innerText = "Temas Enviados!";
+                    statusMsg.innerText = "Seus temas foram salvos. Aguardando o outro jogador...";
+                });
+        });
+
+        // 2. Ação do Botão Físico "Limpar Roleta"
+        btnLimpar.addEventListener('click', () => {
+            // Limpa os campos de texto locais
+            document.getElementById('tema1').value = "";
+            document.getElementById('tema2').value = "";
+            document.getElementById('tema3').value = "";
+            
+            // Restaura o botão de enviar
+            btnEnviar.disabled = false;
+            btnEnviar.innerText = "Enviar Meus Temas";
+            
+            // Executa a limpeza global no Firebase
+            limparBancoDeDados();
+        });
+
+        // Sincronização em Tempo Real (Escuta o Firebase)
+        onValue(sessionRef, (snapshot) => {
+            const data = snapshot.val();
+            
+            // Se o nó foi deletado (limpeza), reinicia a roleta localmente
+            if (!data) {
+                listaTemas = [];
+                desenharRoleta([]);
+                statusMsg.innerText = "Aguardando os temas (0/6)...";
+                btnGirar.disabled = true;
+                canvas.style.transform = `rotate(0deg)`;
+                return;
+            }
+
+            // Une os temas enviados
+            listaTemas = [];
+            if (data.jogadores) {
+                Object.values(data.jogadores).forEach(temasJogador => {
+                    listaTemas = listaTemas.concat(temasJogador);
+                });
+            }
+
+            desenharRoleta(listaTemas);
+            statusMsg.innerText = `Temas carregados na roleta: (${listaTemas.length}/6)`;
+
+            if (listaTemas.length >= 6) {
+                btnGirar.disabled = false;
+                statusMsg.innerText = "Tudo pronto! Qualquer um pode clicar em Girar!";
+            } else {
+                btnGirar.disabled = true;
+            }
+
+            // Sincroniza o giro físico
+            if (data.giro && data.giro.timestamp) {
+                const anguloAlvo = data.giro.angulo;
+                canvas.style.transform = `rotate(${anguloAlvo}deg)`;
+                btnGirar.disabled = true; 
+                
+                setTimeout(() => {
+                    if (listaTemas.length === 0) return; // Proteção se limpar no meio do giro
+                    const grausNormais = (anguloAlvo % 360);
+                    const anguloFatia = 360 / listaTemas.length;
+                    
+                    const indiceGanhador = Math.floor(((360 - grausNormais + 270) % 360) / anguloFatia);
+                    const temaVencedor = listaTemas[indiceGanhador];
+                    
+                    statusMsg.innerHTML = `🎉 O tema escolhido foi: <span style="color:#ff4757; font-size:1.4rem;">${temaVencedor}</span>!`;
+                    if (listaTemas.length >= 6) btnGirar.disabled = false;
+                }, 4000);
+            }
+        });
+
+        // Dispara o comando de girar
+        btnGirar.addEventListener('click', () => {
+            const novoAngulo = Math.floor(Math.random() * 3000) + 2000;
+            set(ref(db, 'roleta_colab/giro'), {
+                angulo: novoAngulo,
+                timestamp: Date.now()
+            });
+        });
+    </script>
+</body>
+</html>
             <canvas id="canvas" width="350" height="350"></canvas>
         </div>
     </div>
